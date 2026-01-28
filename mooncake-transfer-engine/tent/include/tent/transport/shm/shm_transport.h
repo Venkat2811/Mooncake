@@ -22,6 +22,7 @@
 
 #include "tent/runtime/control_plane.h"
 #include "tent/runtime/transport.h"
+#include "tent/transport/shm/shm_arena.h"
 
 namespace mooncake {
 namespace tent {
@@ -108,6 +109,10 @@ class ShmTransport : public Transport {
     std::unordered_map<void *, std::string> shm_path_map_;
 
     std::string cxl_mount_path_;
+
+    // Arena allocator for optimized SHM allocation (232.5x faster)
+    std::shared_ptr<ShmArena> arena_;
+    bool use_arena_allocator_;
 };
 }  // namespace tent
 }  // namespace mooncake

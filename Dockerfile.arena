@@ -1,0 +1,60 @@
+# Dockerfile for testing Mooncake with SHM Arena integration
+FROM ubuntu:22.04
+
+WORKDIR /workspace
+
+# Install dependencies (from .devcontainer/Dockerfile)
+RUN apt-get update -y \
+    && apt-get install -y vim git wget build-essential cmake net-tools tcpdump \
+    && apt-get install -y libibverbs-dev \
+    libunwind-dev \
+    libgoogle-glog-dev \
+    libgtest-dev \
+    libjsoncpp-dev \
+    libnuma-dev \
+    libpython3-dev \
+    libboost-all-dev \
+    libssl-dev \
+    libgrpc-dev \
+    libgrpc++-dev \
+    libprotobuf-dev \
+    protobuf-compiler-grpc \
+    pybind11-dev \
+    libcurl4-openssl-dev \
+    libhiredis-dev \
+    libyaml-cpp-dev \
+    libjemalloc-dev \
+    pkg-config \
+    patchelf
+
+# Install Go
+RUN wget https://go.dev/dl/go1.22.12.linux-amd64.tar.gz \
+    && tar -C /usr/local -xzf go1.22.12.linux-amd64.tar.gz \
+    && rm go1.22.12.linux-amd64.tar.gz
+
+# Install yalantinglibs
+RUN git clone https://github.com/alibaba/yalantinglibs.git \
+    && cd yalantinglibs \
+    && mkdir -p build \
+    && cd build \
+    && cmake .. -DBUILD_EXAMPLES=OFF -DBUILD_BENCHMARK=OFF -DBUILD_UNIT_TESTS=OFF \
+    && cmake --build . -j$(nproc) \
+    && cmake --install .
+
+ENV GOPROXY='https://goproxy.cn'
+ENV PATH=/usr/local/go/bin:$PATH
+
+# Copy Mooncake source with arena integration
+COPY . /workspace/mooncake
+
+WORKDIR /workspace/mooncake
+
+# Initialize git submodules
+RUN git submodule update --init --recursive || true
+
+# Build Mooncake with arena allocator
+RUN rm -rf build && mkdir build && cd build \
+    && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_UNIT_TESTS=ON -DUSE_CUDA=OFF -DUSE_TCP=ON \
+    && make -j$(nproc)
+
+CMD ["/bin/bash"]
