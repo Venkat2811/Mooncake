@@ -1,0 +1,148 @@
+# Performance Regression Testing Workflow
+# Runs benchmarks on every PR and detects performance regressions
+
+name: Performance Regression Tests
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'mooncake-transfer-engine/**'
+      - 'scripts/**'
+      - '.github/workflows/performance_regression.yml'
+
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Full history for comparison
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          libgtest-dev \
+          libgflags-dev \
+          libgoogle-glog-dev \
+          python3 \
+          python3-pip
+
+    - name: Build benchmarks
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_UNIT_TESTS=ON \
+          -DUSE_CUDA=OFF \
+          -DUSE_TCP=ON
+        make -j$(nproc) shm_allocation_bench shm_address_lookup_bench shm_transfer_bench
+
+    - name: Download baseline results
+      id: baseline
+      continue-on-error: true
+      run: |
+        # Try to download baseline from previous successful run
+        gh run download \
+          --repo ${{ github.repository }} \
+          --name benchmark-baseline \
+          --dir baseline_results || echo "No baseline found"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Run benchmarks
+      run: |
+        python3 scripts/regression_test.py \
+          --build-dir build \
+          --output current_results.json
+
+    - name: Compare with baseline
+      id: compare
+      if: steps.baseline.outcome == 'success'
+      run: |
+        python3 scripts/regression_test.py \
+          --compare baseline_results/results.json current_results.json \
+          --ci \
+          | tee regression_report.txt
+
+        # Extract summary for PR comment
+        echo "REGRESSION_REPORT<<EOF" >> $GITHUB_ENV
+        cat regression_report.txt >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+
+    - name: Upload current results as baseline
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-baseline
+        path: current_results.json
+        retention-days: 90
+
+    - name: Upload regression report
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: regression-report
+        path: |
+          regression_report.txt
+          current_results.json
+
+    - name: Comment on PR
+      if: github.event_name == 'pull_request' && steps.compare.outcome != 'skipped'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const report = fs.readFileSync('regression_report.txt', 'utf8');
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `## Performance Regression Test Results\n\n\`\`\`\n${report}\n\`\`\``
+          });
+
+    - name: Fail on regression
+      if: steps.compare.outcome == 'failure'
+      run: |
+        echo "❌ Performance regression detected!"
+        exit 1
+
+  quick-validation:
+    # Quick smoke test to ensure benchmarks compile and run
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          libgtest-dev \
+          libgflags-dev \
+          libgoogle-glog-dev
+
+    - name: Build and test
+      run: |
+        ./scripts/build_benchmarks.sh
+
+        # Quick smoke test (1 iteration)
+        cd build
+        ./mooncake-transfer-engine/benchmark/shm/shm_allocation_bench \
+          --num_iterations=1 \
+          --cleanup=true
+
+        echo "✅ Benchmarks compile and run successfully"

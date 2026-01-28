@@ -10,3 +10,7 @@ endif()
 file(GLOB TEBENCH_SOURCES "*.cpp")
 add_executable(tebench ${TEBENCH_SOURCES})
 target_link_libraries(tebench PUBLIC transfer_engine tent)
+
+# Add micro-benchmarks subdirectories
+add_subdirectory(shm)
+add_subdirectory(control_plane)
