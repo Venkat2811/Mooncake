@@ -26,3 +26,13 @@ find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 target_link_libraries(tentpy PRIVATE ${Python3_LIBRARIES})
 target_include_directories(tentpy PRIVATE ${Python3_INCLUDE_DIRS})
 target_link_libraries(tentpy PUBLIC tent)
+
+# Link RDMA libraries if available
+find_library(IBVERBS_LIB ibverbs)
+find_library(RDMACM_LIB rdmacm)
+if(IBVERBS_LIB)
+    target_link_libraries(tentpy PRIVATE ${IBVERBS_LIB})
+endif()
+if(RDMACM_LIB)
+    target_link_libraries(tentpy PRIVATE ${RDMACM_LIB})
+endif()

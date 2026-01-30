@@ -1,0 +1,72 @@
+// Copyright 2026 KVCache.AI
+// Simple arena allocator for mmap-based memory allocation
+// Used by SGLang HiCache for fast buffer allocation
+
+#pragma once
+
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <glog/logging.h>
+
+namespace mooncake {
+
+/**
+ * @brief Simple lock-free arena allocator for mmap'd memory
+ *
+ * Performance: ~48ns per allocation (atomic fetch_add)
+ * vs ~1000ns for mmap() calls
+ *
+ * Thread-safe via atomic operations, no locks needed.
+ */
+class MmapArena {
+public:
+    struct Stats {
+        size_t pool_size;
+        size_t allocated_bytes;
+        size_t peak_allocated;
+        size_t num_allocations;
+        size_t num_failed_allocs;
+    };
+
+    MmapArena();
+    ~MmapArena();
+
+    /**
+     * Initialize arena with a large mmap'd pool
+     * @param pool_size Total size to pre-allocate (aligned to huge pages)
+     * @param alignment Allocation alignment (default 64 bytes)
+     * @return true on success
+     */
+    bool initialize(size_t pool_size, size_t alignment = 64);
+
+    /**
+     * Allocate memory from arena
+     * @param size Number of bytes to allocate
+     * @return Pointer to allocated memory, or nullptr if OOM
+     */
+    void* allocate(size_t size);
+
+    /**
+     * Get current arena statistics
+     */
+    Stats getStats() const;
+
+    /**
+     * Check if arena is initialized
+     */
+    bool isInitialized() const { return pool_base_ != nullptr; }
+
+private:
+    void* pool_base_;           // Base address of mmap'd pool
+    size_t pool_size_;          // Total pool size
+    size_t alignment_;          // Allocation alignment
+
+    std::atomic<size_t> alloc_cursor_;      // Current allocation offset
+    std::atomic<size_t> peak_allocated_;    // Peak memory usage
+    std::atomic<size_t> num_allocations_;   // Total allocations
+    std::atomic<size_t> num_failed_allocs_; // Failed allocations (OOM)
+};
+
+} // namespace mooncake

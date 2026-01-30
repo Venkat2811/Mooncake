@@ -231,7 +231,7 @@ class BatchGuard {
 // Python Module Definition
 // =============================================================================
 
-PYBIND11_MODULE(tent, m) {
+PYBIND11_MODULE(tentpy, m) {
     m.doc() = "TENT Python bindings for Mooncake Transfer Engine";
 
     // -------------------------------------------------------------------------

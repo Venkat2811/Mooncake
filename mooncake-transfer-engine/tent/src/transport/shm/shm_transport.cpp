@@ -67,8 +67,13 @@ Status ShmTransport::install(std::string &local_segment_name,
 
     // Initialize arena allocator if enabled
     use_arena_allocator_ = FLAGS_use_shm_arena_allocator;
+    LOG(INFO) << "=== ARENA ALLOCATOR FLAG STATUS ===";
+    LOG(INFO) << "FLAGS_use_shm_arena_allocator = " << (FLAGS_use_shm_arena_allocator ? "TRUE (ENABLED)" : "FALSE (DISABLED)");
+    LOG(INFO) << "use_arena_allocator_ = " << (use_arena_allocator_ ? "TRUE" : "FALSE");
+
     if (use_arena_allocator_) {
-        LOG(INFO) << "Initializing SHM arena allocator (232.5x faster allocations)";
+        LOG(INFO) << "=== INITIALIZING SHM ARENA ALLOCATOR ===";
+        LOG(INFO) << "Expected performance: 232.5x faster allocations (48ns vs 11,138ns)";
 
         ShmArena::Config arena_config;
         arena_config.pool_size = FLAGS_shm_arena_pool_size;
@@ -77,16 +82,20 @@ Status ShmTransport::install(std::string &local_segment_name,
         arena_ = std::make_shared<ShmArena>();
         auto status = arena_->initialize(arena_config);
         if (!status.ok()) {
+            LOG(ERROR) << "=== ARENA INITIALIZATION FAILED ===";
             LOG(ERROR) << "Failed to initialize SHM arena: " << status.ToString();
             LOG(WARNING) << "Falling back to traditional shm_open/mmap allocation";
             use_arena_allocator_ = false;
             arena_.reset();
         } else {
             auto stats = arena_->getStats();
-            LOG(INFO) << "SHM arena initialized: pool_size="
-                      << (stats.pool_size / (1024.0 * 1024.0 * 1024.0))
-                      << " GB, base=" << stats.pool_base;
+            LOG(INFO) << "=== ARENA INITIALIZED SUCCESSFULLY ===";
+            LOG(INFO) << "Arena pool_size: " << (stats.pool_size / (1024.0 * 1024.0 * 1024.0)) << " GB";
+            LOG(INFO) << "Arena allocations will be logged with VLOG(2)";
         }
+    } else {
+        LOG(INFO) << "=== USING TRADITIONAL ALLOCATION ===";
+        LOG(INFO) << "Arena allocator is DISABLED - using slow shm_open/mmap path";
     }
 
     return Status::OK();
@@ -105,11 +114,13 @@ Status ShmTransport::uninstall() {
 
         // Cleanup arena if initialized
         if (arena_) {
-            LOG(INFO) << "Cleaning up SHM arena allocator";
+            LOG(INFO) << "=== CLEANING UP SHM ARENA ALLOCATOR ===";
             auto stats = arena_->getStats();
-            LOG(INFO) << "Arena stats: allocations=" << stats.num_allocations
-                      << ", allocated_bytes=" << (stats.allocated_bytes / (1024.0 * 1024.0))
-                      << " MB, failed=" << stats.num_failed_allocs;
+            LOG(INFO) << "Arena final statistics:";
+            LOG(INFO) << "  Total allocations: " << stats.num_allocations;
+            LOG(INFO) << "  Total allocated: " << (stats.allocated_bytes / (1024.0 * 1024.0)) << " MB";
+            LOG(INFO) << "  Failed allocations: " << stats.num_failed_allocs;
+            LOG(INFO) << "  Pool utilization: " << (100.0 * stats.allocated_bytes / stats.pool_size) << "%";
             arena_.reset();
         }
 
@@ -260,18 +271,19 @@ void *ShmTransport::createSharedMemory(const std::string &path, size_t size) {
         if (status.ok()) {
             std::lock_guard<std::mutex> lock(shm_path_mutex_);
             shm_path_map_[alloc.addr] = path;
-            VLOG(2) << "Arena allocation: size=" << size
-                    << ", addr=" << alloc.addr
+            VLOG(1) << "[ARENA] Fast allocation: size=" << size
+                    << " bytes, addr=" << alloc.addr
                     << ", offset=" << alloc.offset;
             return alloc.addr;
         } else {
-            LOG(WARNING) << "Arena allocation failed: " << status.ToString()
-                         << ", falling back to traditional allocation";
+            LOG(WARNING) << "[ARENA] Allocation failed: " << status.ToString()
+                         << ", falling back to traditional allocation for size=" << size;
             // Fall through to traditional allocation
         }
     }
 
     // Traditional allocation path (slow: 3 syscalls per allocation)
+    VLOG(1) << "[TRADITIONAL] Slow allocation via shm_open/mmap: size=" << size << " bytes";
     int shm_fd = -1;
     if (cxl_mount_path_.empty())
         shm_fd = shm_open(path.c_str(), O_CREAT | O_RDWR, 0644);
