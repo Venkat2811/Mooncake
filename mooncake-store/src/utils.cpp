@@ -238,10 +238,24 @@ void free_buffer_mmap_memory(void *ptr, size_t total_size) {
         return;
     }
 
+    // Check if pointer belongs to global arena
+    std::call_once(g_arena_init_flag, initializeGlobalArena);
+
+    if (g_mmap_arena && g_mmap_arena->owns(ptr)) {
+        // Arena allocation - cannot be freed individually
+        // Arena memory is freed at shutdown when arena destructor runs
+        VLOG(1) << "Skipping free of arena pointer " << ptr
+                << " (arena memory is freed at shutdown)";
+        return;
+    }
+
+    // Direct mmap allocation - safe to unmap
     const size_t map_size = align_up(total_size, get_hugepage_size_from_env());
     if (munmap(ptr, map_size) != 0) {
         LOG(ERROR) << "munmap hugepage failed, size=" << map_size
                    << ", errno=" << errno << " (" << strerror(errno) << ")";
+    } else {
+        VLOG(1) << "Freed direct mmap allocation at " << ptr << ", size=" << map_size;
     }
 }
 

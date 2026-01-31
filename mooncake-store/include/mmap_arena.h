@@ -54,14 +54,35 @@ public:
     Stats getStats() const;
 
     /**
-     * Check if arena is initialized
+     * Check if arena is initialized (thread-safe)
      */
-    bool isInitialized() const { return pool_base_ != nullptr; }
+    bool isInitialized() const {
+        return pool_base_.load(std::memory_order_acquire) != nullptr;
+    }
+
+    /**
+     * Check if pointer was allocated from this arena
+     * Used by free_buffer_mmap_memory to determine allocation type
+     * @param ptr Pointer to check
+     * @return true if ptr is in arena's address range
+     */
+    bool owns(const void* ptr) const;
+
+    /**
+     * Get pool base and size (for debugging/testing)
+     */
+    void* getPoolBase() const {
+        return pool_base_.load(std::memory_order_acquire);
+    }
+
+    size_t getPoolSize() const {
+        return pool_size_.load(std::memory_order_acquire);
+    }
 
 private:
-    void* pool_base_;           // Base address of mmap'd pool
-    size_t pool_size_;          // Total pool size
-    size_t alignment_;          // Allocation alignment
+    std::atomic<void*> pool_base_;      // Base address of mmap'd pool (atomic for thread-safety)
+    std::atomic<size_t> pool_size_;     // Total pool size (atomic for thread-safety)
+    size_t alignment_;                  // Allocation alignment (set once during init)
 
     std::atomic<size_t> alloc_cursor_;      // Current allocation offset
     std::atomic<size_t> peak_allocated_;    // Peak memory usage
