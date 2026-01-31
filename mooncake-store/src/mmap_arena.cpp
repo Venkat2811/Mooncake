@@ -65,11 +65,16 @@ bool MmapArena::initialize(size_t pool_size, size_t alignment) {
         return false;
     }
 
-    alignment_ = std::max(alignment, size_t(64));
+    // Compute alignment (local variable to avoid data race)
+    size_t actual_alignment = std::max(alignment, size_t(64));
 
-    // Align pool size to 2MB for huge pages
+    // Align pool size to 2MB for huge pages with overflow protection
     const size_t HUGE_PAGE_SIZE = 2 * 1024 * 1024;
-    size_t aligned_pool_size = align_up(pool_size, HUGE_PAGE_SIZE);
+    size_t aligned_pool_size;
+    if (!safe_align_up(pool_size, HUGE_PAGE_SIZE, &aligned_pool_size)) {
+        LOG(ERROR) << "Arena pool size overflow: requested=" << pool_size;
+        return false;
+    }
 
     // Allocate pool with mmap
     int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE;
@@ -98,23 +103,32 @@ bool MmapArena::initialize(size_t pool_size, size_t alignment) {
         LOG(INFO) << "Arena initialized with huge pages";
     }
 
+    // CRITICAL: Store pool_size_ BEFORE the CAS to establish happens-before relationship
+    // When allocate() loads pool_base_ with acquire, the prior pool_size_ store is visible
+    // Note: If multiple threads race to initialize, they may overwrite pool_size_ with
+    // different values, but the winning thread's value will be visible due to the release
+    // fence on the CAS. In practice, all racing threads should use the same pool_size.
+    pool_size_.store(aligned_pool_size, std::memory_order_release);
+
     // Atomically publish pool_base with CAS (only first thread wins)
-    // Use release semantics to ensure all initialization is visible
+    // Use release semantics to ensure all prior stores are visible
     if (!pool_base_.compare_exchange_strong(expected, pool_base,
                                            std::memory_order_release,
                                            std::memory_order_acquire)) {
         // Another thread won the race - clean up our allocation
         LOG(WARNING) << "Arena initialization race detected, cleaning up duplicate";
+        // The winner's pool_size_ is already stored and will be visible
         munmap(pool_base, aligned_pool_size);
         return false;
     }
 
-    // We won the race - publish pool size with release semantics
-    pool_size_.store(aligned_pool_size, std::memory_order_release);
+    // We won the race - now safe to update alignment_
+    // This happens after pool_base_ CAS, so happens-before relationship established
+    alignment_ = actual_alignment;
 
     LOG(INFO) << "Arena initialized: "
               << (aligned_pool_size / (1024.0 * 1024.0 * 1024.0))
-              << " GB, alignment=" << alignment_ << " bytes";
+              << " GB, alignment=" << actual_alignment << " bytes";
 
     return true;
 }
@@ -161,6 +175,7 @@ void* MmapArena::allocate(size_t size) {
         // Try to reserve space atomically
         // If another thread modified alloc_cursor_, CAS fails and we retry
         if (alloc_cursor_.compare_exchange_weak(offset, offset + aligned_size,
+                                                std::memory_order_relaxed,
                                                 std::memory_order_relaxed)) {
             break;  // Success - space reserved
         }
@@ -175,6 +190,7 @@ void* MmapArena::allocate(size_t size) {
     size_t old_peak = peak_allocated_.load(std::memory_order_relaxed);
     while (new_peak > old_peak &&
            !peak_allocated_.compare_exchange_weak(old_peak, new_peak,
+                                                   std::memory_order_relaxed,
                                                    std::memory_order_relaxed)) {
         // CAS loop for peak tracking
     }

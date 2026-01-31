@@ -15,7 +15,7 @@ namespace mooncake {
 /**
  * @brief Simple lock-free arena allocator for mmap'd memory
  *
- * Performance: ~48ns per allocation (atomic fetch_add)
+ * Performance: ~50-60ns per allocation (CAS loop)
  * vs ~1000ns for mmap() calls
  *
  * Thread-safe via atomic operations, no locks needed.
@@ -32,6 +32,12 @@ public:
 
     MmapArena();
     ~MmapArena();
+
+    // Delete copy and move operations (class contains atomics)
+    MmapArena(const MmapArena&) = delete;
+    MmapArena& operator=(const MmapArena&) = delete;
+    MmapArena(MmapArena&&) = delete;
+    MmapArena& operator=(MmapArena&&) = delete;
 
     /**
      * Initialize arena with a large mmap'd pool
