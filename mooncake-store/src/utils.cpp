@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <random>
 #include <cerrno>
+#include <csignal>
 #include <cstring>
 #include <sys/mman.h>
 #include <mutex>
