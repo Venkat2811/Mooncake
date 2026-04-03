@@ -123,6 +123,16 @@ Note: In most cases, the errors output, except for the first occurrence, are `wo
 
 In addition, if the error `Failed to get description of XXX` is displayed, it indicates that the Segment name input by the user when calling the `openSegment` interface cannot be found in the etcd database. For memory read/write scenarios, the Segment name needs to strictly match the `local_hostname` field filled in by the other node during initialization.
 
+## Memory Allocator
+
+Mooncake Store uses a lock-free arena allocator by default for mmap buffer allocations. The arena pre-allocates a large pool (default 64GB) using hugepages and serves subsequent allocations from it. If the arena cannot allocate hugepages, it falls back to regular pages automatically.
+
+If you encounter memory allocation issues related to the arena:
+
+- **Arena pool too large for available hugepages:** Reduce the pool size with `MC_MMAP_ARENA_POOL_SIZE="8gb"` to fit within your hugepage budget.
+- **Need to disable the arena entirely:** Set `MC_DISABLE_MMAP_ARENA=1` to fall back to per-call `mmap()`.
+- **Arena OOM during serving:** The arena logs a warning and falls back to direct `mmap()` for that allocation. If this happens frequently, increase `MC_MMAP_ARENA_POOL_SIZE`.
+
 ## SGLang Common Questions
 
 ### Do I need RDMA to run SGLang and Mooncake?
