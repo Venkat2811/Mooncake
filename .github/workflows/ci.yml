@@ -78,6 +78,11 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y lcov gcovr ninja-build
 
+    - name: Test HugeTLB sizing helper
+      run: |
+        python3 scripts/test_hicache_hugepage_requirements.py
+      shell: bash
+
     - name: Set up coverage compilation flags
       run: |
         echo "Setting up coverage compilation flags..."
@@ -672,7 +677,7 @@ jobs:
           echo "Error: code_format.sh not found or not executable"
           exit 1
         fi
-        
+
         # Determine base ref for comparison
         if [ "${{ github.event_name }}" == "pull_request" ]; then
           # For PRs: compare against the target branch
@@ -691,4 +696,3 @@ jobs:
         echo "Comparing against: ${BASE_REF}"
         ./scripts/code_format.sh --check --base "${BASE_REF}"
       shell: bash
-

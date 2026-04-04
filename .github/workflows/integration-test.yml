@@ -29,6 +29,9 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           filters: |
             changed:
+              - 'README.md'
+              - 'docs/**'
+              - 'docker/**'
               - 'mooncake-*/**'
               - 'extern/**'
               - 'CMakeLists.txt'
