@@ -30,8 +30,12 @@ jobs:
           filters: |
             changed:
               - 'README.md'
-              - 'docs/**'
               - 'docker/**'
+              - 'docs/source/deployment/mooncake-store-deployment-guide.md'
+              - 'docs/source/getting_started/build.md'
+              - 'docs/source/getting_started/examples/sglang-integration/hicache-integration-v1.md'
+              - 'docs/source/getting_started/examples/sglang-integration/hicache-quick-start.md'
+              - 'docs/source/troubleshooting/troubleshooting.md'
               - 'mooncake-*/**'
               - 'extern/**'
               - 'CMakeLists.txt'
