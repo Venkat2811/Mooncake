@@ -1,7 +1,10 @@
 #pragma once
 
+#include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdlib>
+#include <optional>
 #include <linux/memfd.h>
 #include <linux/mman.h>
 #include <string>
@@ -237,6 +240,32 @@ std::string expected_to_str(const tl::expected<T, ErrorCode>& expected) {
         // Unknown unit
         return 0;
     }
+}
+
+/**
+ * @brief Convert a boolean-like string to a bool
+ * @param str String representation ("1"/"true"/"yes"/"on" or
+ * "0"/"false"/"no"/"off")
+ * @return std::optional<bool> Parsed value, or std::nullopt if parsing fails
+ */
+[[nodiscard]] inline std::optional<bool> string_to_bool(std::string str) {
+    if (str.empty()) {
+        return std::nullopt;
+    }
+
+    str.erase(0, str.find_first_not_of(" \t\r\n"));
+    str.erase(str.find_last_not_of(" \t\r\n") + 1);
+    std::transform(str.begin(), str.end(), str.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+
+    if (str == "1" || str == "true" || str == "yes" || str == "on") {
+        return true;
+    }
+    if (str == "0" || str == "false" || str == "no" || str == "off") {
+        return false;
+    }
+
+    return std::nullopt;
 }
 
 /**

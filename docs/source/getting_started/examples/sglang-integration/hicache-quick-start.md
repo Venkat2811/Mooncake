@@ -57,7 +57,7 @@ MOONCAKE_MASTER=127.0.0.1:50051 python -m sglang.launch_server \
 
 **Key flag:** `--hicache-storage-prefetch-policy {best_effort,wait_complete,timeout}` determines when prefetching from storage should stop. `timeout` usually offers the best balance when Mooncake is the backend.
 
-**Memory allocator:** Mooncake's mmap arena is opt-in. Setting `MC_MMAP_ARENA_POOL_SIZE` enables it and chooses the pool size; if you enable it via gflag instead, the default pool size is `8gb`. To force the baseline direct-`mmap()` path, set `MC_DISABLE_MMAP_ARENA=1`. See the [Complete Guide](hicache-integration-v1.md) for the full HugeTLB sizing and troubleshooting flow.
+**Memory allocator:** Mooncake's mmap arena is opt-in. Setting `MC_MMAP_ARENA_POOL_SIZE` enables it and chooses the pool size; if you enable it via gflag instead, the default pool size is `8gb`. To force the baseline direct-`mmap()` path, set `MC_DISABLE_MMAP_ARENA=1` (also accepts `true`, `yes`, or `on`) before the first Mooncake mmap-buffer allocation in the process. See the [Complete Guide](hicache-integration-v1.md) for the full HugeTLB sizing and troubleshooting flow.
 
 ## Prefill/Decode Disaggregation
 

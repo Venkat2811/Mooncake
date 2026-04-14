@@ -242,7 +242,7 @@ docker run --gpus all \
   -it mooncake:from-source /bin/bash
 ```
 
-The same sizing helper is also installed inside the runtime image as `mooncake-hicache-sizing`. Setting `MC_MMAP_ARENA_POOL_SIZE=...` explicitly both enables and sizes the arena; set `MC_DISABLE_MMAP_ARENA=1` instead when you want the baseline direct-`mmap()` path.
+The same sizing helper is also installed inside the runtime image as `mooncake-hicache-sizing`. Setting `MC_MMAP_ARENA_POOL_SIZE=...` explicitly both enables and sizes the arena; set `MC_DISABLE_MMAP_ARENA=1` (also accepts `true`, `yes`, or `on`) instead when you want the baseline direct-`mmap()` path. Like the arena size itself, this must be set before the first Mooncake mmap-buffer allocation in the process.
 
 > [!NOTE]
 > Make sure you build the image from the repository root so that Git metadata and submodules are available inside the build context.

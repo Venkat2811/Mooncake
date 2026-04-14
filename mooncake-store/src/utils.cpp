@@ -15,6 +15,7 @@
 #include <boost/algorithm/string.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <memory>
 #include <random>
 #include <cerrno>
@@ -120,6 +121,8 @@ void *allocate_buffer_allocator_memory(size_t total_size,
 // Global arena instance (lazy initialization)
 static std::unique_ptr<MmapArena> g_mmap_arena;
 static std::once_flag g_arena_init_flag;
+static std::atomic<uint64_t> g_arena_oom_fallback_count{0};
+static std::atomic<uint64_t> g_arena_noop_free_count{0};
 
 static void initializeGlobalArena() {
     const std::string env_pool_size =
@@ -128,12 +131,20 @@ static void initializeGlobalArena() {
     // Python). An explicit pool-size env var is also treated as an opt-in,
     // because pybind11 users cannot easily pass gflags.
     const std::string env_disable = GetEnvStringOr("MC_DISABLE_MMAP_ARENA", "");
+    const std::optional<bool> disable_override = string_to_bool(env_disable);
+    if (!env_disable.empty() && !disable_override.has_value()) {
+        LOG(WARNING) << "Ignoring invalid MC_DISABLE_MMAP_ARENA='"
+                     << env_disable
+                     << "'; accepted values: 1/0, true/false, yes/no, on/off";
+    }
     const bool arena_requested =
         FLAGS_use_mmap_arena_allocator || !env_pool_size.empty();
-    if (!arena_requested || env_disable == "1") {
+    const bool arena_disabled = disable_override.value_or(false);
+    if (!arena_requested || arena_disabled) {
         LOG(INFO) << "=== ARENA ALLOCATOR DISABLED ===";
-        if (env_disable == "1") {
-            LOG(INFO) << "MC_DISABLE_MMAP_ARENA=1 forces direct mmap()";
+        if (arena_disabled) {
+            LOG(INFO) << "MC_DISABLE_MMAP_ARENA=" << env_disable
+                      << " forces direct mmap()";
         } else {
             LOG(INFO) << "Arena is opt-in; set --use_mmap_arena_allocator or "
                          "MC_MMAP_ARENA_POOL_SIZE to enable it";
@@ -167,7 +178,7 @@ static void initializeGlobalArena() {
         LOG(INFO) << "=== ARENA ALLOCATOR ENABLED ===";
         LOG(INFO) << "Arena pool size: "
                   << (stats.pool_size / (1024.0 * 1024.0 * 1024.0)) << " GiB";
-        LOG(INFO) << "Using lock-free atomic bump allocation (~48ns/alloc)";
+        LOG(INFO) << "Using lock-free atomic bump allocation";
     } else {
         LOG(ERROR) << "=== ARENA INITIALIZATION FAILED ===";
         LOG(ERROR) << "Falling back to traditional mmap()";
@@ -203,8 +214,12 @@ void *allocate_buffer_mmap_memory(size_t total_size, size_t alignment) {
             return ptr;
         }
         // Arena OOM, fall through to traditional mmap
+        const uint64_t fallback_count =
+            g_arena_oom_fallback_count.fetch_add(1, std::memory_order_relaxed) +
+            1;
         LOG_FIRST_N(WARNING, 3)
             << "Arena OOM, falling back to mmap() for size=" << total_size
+            << " (count=" << fallback_count << ")"
             << " (further warnings suppressed)";
     }
 
@@ -242,10 +257,13 @@ void free_buffer_mmap_memory(void *ptr, size_t total_size) {
     std::call_once(g_arena_init_flag, initializeGlobalArena);
 
     if (g_mmap_arena && g_mmap_arena->owns(ptr)) {
+        const uint64_t noop_free_count =
+            g_arena_noop_free_count.fetch_add(1, std::memory_order_relaxed) + 1;
         LOG_FIRST_N(WARNING, 3)
             << "free_buffer_mmap_memory() does not individually release "
                "arena-owned pointer "
             << ptr << "; the global arena releases its pool at process shutdown"
+            << " (count=" << noop_free_count << ")"
             << " (further warnings suppressed)";
         return;
     }

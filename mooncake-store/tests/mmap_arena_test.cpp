@@ -33,7 +33,7 @@ TEST_F(MmapArenaTest, BasicInitialization) {
 
     auto stats = arena.getStats();
     EXPECT_EQ(stats.pool_size, 2 * 1024 * 1024);  // Aligned to 2MB (huge page)
-    EXPECT_EQ(stats.allocated_bytes, 0);
+    EXPECT_EQ(stats.reserved_bytes, 0);
     EXPECT_EQ(stats.num_allocations, 0);
     EXPECT_EQ(stats.num_failed_allocs, 0);
 }
@@ -47,8 +47,8 @@ TEST_F(MmapArenaTest, BasicAllocation) {
 
     auto stats = arena.getStats();
     EXPECT_EQ(stats.num_allocations, 1);
-    EXPECT_GE(stats.allocated_bytes, 1024);
-    EXPECT_LE(stats.allocated_bytes, 1024 + 64);  // Accounting for alignment
+    EXPECT_GE(stats.reserved_bytes, 1024);
+    EXPECT_LE(stats.reserved_bytes, 1024 + 64);  // Accounting for alignment
 }
 
 TEST_F(MmapArenaTest, AllocationAlignment) {
@@ -118,7 +118,7 @@ TEST_F(MmapArenaTest, OOMDoesNotCorruptCursor) {
 
     // CRITICAL: Cursor should be at or below pool_size, not corrupted
     auto stats = arena.getStats();
-    ASSERT_LE(stats.allocated_bytes, pool_size);
+    ASSERT_LE(stats.reserved_bytes, pool_size);
     ASSERT_GT(stats.num_failed_allocs, 0);
 
     // Subsequent allocations should still fail gracefully, not crash
@@ -127,7 +127,7 @@ TEST_F(MmapArenaTest, OOMDoesNotCorruptCursor) {
 
     // Verify cursor didn't go past pool_size
     stats = arena.getStats();
-    ASSERT_LE(stats.allocated_bytes, pool_size);
+    ASSERT_LE(stats.reserved_bytes, pool_size);
 }
 
 TEST_F(MmapArenaTest, ConcurrentOOMStressTest) {
@@ -168,7 +168,7 @@ TEST_F(MmapArenaTest, ConcurrentOOMStressTest) {
     auto stats = arena.getStats();
 
     // Verify cursor didn't go beyond pool
-    ASSERT_LE(stats.allocated_bytes, actual_pool_size);
+    ASSERT_LE(stats.reserved_bytes, actual_pool_size);
 
     // Some allocations should have succeeded
     ASSERT_GT(succeeded.load(), 0);
@@ -182,7 +182,7 @@ TEST_F(MmapArenaTest, ConcurrentOOMStressTest) {
 
     LOG(INFO) << "OOM stress test: " << succeeded.load() << " succeeded, "
               << failed.load() << " failed, pool utilization: "
-              << (100.0 * stats.allocated_bytes / stats.pool_size) << "%";
+              << (100.0 * stats.reserved_bytes / stats.pool_size) << "%";
 }
 
 // ===== BUG #2 & #3: INTEGER OVERFLOW TESTS =====
@@ -197,7 +197,7 @@ TEST_F(MmapArenaTest, IntegerOverflowInBoundsCheck) {
 
     auto stats = arena.getStats();
     EXPECT_EQ(stats.num_failed_allocs, 1);
-    EXPECT_EQ(stats.allocated_bytes, 0);
+    EXPECT_EQ(stats.reserved_bytes, 0);
 }
 
 TEST_F(MmapArenaTest, AlignmentOverflow) {
@@ -211,7 +211,7 @@ TEST_F(MmapArenaTest, AlignmentOverflow) {
 
     auto stats = arena.getStats();
     EXPECT_EQ(stats.num_failed_allocs, 1);
-    EXPECT_EQ(stats.allocated_bytes, 0);
+    EXPECT_EQ(stats.reserved_bytes, 0);
 }
 
 TEST_F(MmapArenaTest, NearMaxSizeAllocation) {
@@ -389,10 +389,11 @@ TEST_F(MmapArenaTest, StatsConsistencyUnderLoad) {
         for (int i = 0; i < 100; ++i) {
             auto stats = arena.getStats();
             // Invariants that must always hold
-            if (stats.allocated_bytes > stats.pool_size) {
+            if (stats.reserved_bytes > stats.pool_size) {
                 invariant_violations.fetch_add(1, std::memory_order_relaxed);
             }
-            // Note: peak_allocated may temporarily lag behind allocated_bytes
+            // Note: peak_reserved_bytes may temporarily lag behind
+            // reserved_bytes
             // due to concurrent updates, so we don't check that invariant here
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
@@ -405,10 +406,10 @@ TEST_F(MmapArenaTest, StatsConsistencyUnderLoad) {
 
     // Critical invariant: cursor never exceeded pool size
     EXPECT_EQ(invariant_violations.load(), 0);
-    EXPECT_LE(stats.allocated_bytes, stats.pool_size);
+    EXPECT_LE(stats.reserved_bytes, stats.pool_size);
 
     // After all threads finish, peak should be >= final allocated
-    EXPECT_GE(stats.peak_allocated, stats.allocated_bytes);
+    EXPECT_GE(stats.peak_reserved_bytes, stats.reserved_bytes);
 
     LOG(INFO) << "Stats consistency test: " << stats.num_allocations
               << " allocations, " << stats.num_failed_allocs << " failures";
@@ -430,11 +431,11 @@ TEST_F(MmapArenaTest, NearOOMAllocation) {
     }
 
     auto stats = arena.getStats();
-    EXPECT_LE(stats.allocated_bytes, stats.pool_size);
+    EXPECT_LE(stats.reserved_bytes, stats.pool_size);
     EXPECT_GT(stats.num_failed_allocs, 0);
 
     LOG(INFO) << "Near-OOM test: " << ptrs.size() << " allocations, "
-              << stats.allocated_bytes << " / " << stats.pool_size
+              << stats.reserved_bytes << " / " << stats.pool_size
               << " bytes used";
 }
 
@@ -473,15 +474,31 @@ TEST_F(MmapArenaTest, PeakAllocationTracking) {
     void* p1 = arena.allocate(512);
     (void)p1;
     auto stats1 = arena.getStats();
-    EXPECT_GE(stats1.peak_allocated, 512);
+    EXPECT_GE(stats1.peak_reserved_bytes, 512);
 
     void* p2 = arena.allocate(1024);
     (void)p2;
     auto stats2 = arena.getStats();
-    EXPECT_GE(stats2.peak_allocated, stats1.peak_allocated);
-    EXPECT_GE(stats2.peak_allocated, 512 + 1024);
+    EXPECT_GE(stats2.peak_reserved_bytes, stats1.peak_reserved_bytes);
+    EXPECT_GE(stats2.peak_reserved_bytes, 512 + 1024);
 
-    LOG(INFO) << "Peak tracking: " << stats2.peak_allocated << " bytes";
+    LOG(INFO) << "Peak tracking: " << stats2.peak_reserved_bytes << " bytes";
+}
+
+TEST_F(MmapArenaTest, ReservedBytesRemainMonotonic) {
+    MmapArena arena;
+    ASSERT_TRUE(arena.initialize(1024 * 1024));
+
+    size_t last_reserved_bytes = 0;
+    for (size_t size : {1UL, 63UL, 64UL, 65UL, 4096UL, 1024UL}) {
+        void* ptr = arena.allocate(size);
+        ASSERT_NE(ptr, nullptr);
+
+        auto stats = arena.getStats();
+        EXPECT_GE(stats.reserved_bytes, last_reserved_bytes);
+        EXPECT_GE(stats.peak_reserved_bytes, stats.reserved_bytes);
+        last_reserved_bytes = stats.reserved_bytes;
+    }
 }
 
 // ===== MIXED ALIGNMENT TESTS =====

@@ -483,7 +483,7 @@ export MOONCAKE_GLOBAL_SEGMENT_SIZE=8gb
 export MC_MMAP_ARENA_POOL_SIZE=56gb
 ```
 
-To disable the arena and fall back to direct `mmap()` while keeping the hugepage-backed baseline path:
+To disable the arena and fall back to direct `mmap()` while keeping the hugepage-backed baseline path, set the flag before the first Mooncake mmap-buffer allocation in the process:
 
 ```bash
 export MC_DISABLE_MMAP_ARENA=1

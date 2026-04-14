@@ -207,7 +207,7 @@ sudo docker run --gpus all \
   -t -i alogfans/mooncake:v0.9.0 /bin/bash
 ```
 
-When you want the baseline direct-`mmap()` path instead of the arena, set `MC_DISABLE_MMAP_ARENA=1` and omit `MC_MMAP_ARENA_POOL_SIZE`. If you build the image from source with `docker/mooncake.Dockerfile`, that source-built image also installs the helper as `mooncake-hicache-sizing`.
+When you want the baseline direct-`mmap()` path instead of the arena, set `MC_DISABLE_MMAP_ARENA=1` (also accepts `true`, `yes`, or `on`) and omit `MC_MMAP_ARENA_POOL_SIZE`. Set it before the first Mooncake mmap-buffer allocation in the process. If you build the image from source with `docker/mooncake.Dockerfile`, that source-built image also installs the helper as `mooncake-hicache-sizing`.
 
 ## Advanced Compile Options
 The following options can be used during `cmake ..` to specify whether to compile certain components of Mooncake.

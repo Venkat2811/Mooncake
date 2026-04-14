@@ -148,7 +148,7 @@ curl -s http://<master_host>:9003/metrics/summary
   - `MC_STORE_USE_HUGEPAGE` (default unset): Set to `1` to request HugeTLB-backed `mmap()` allocations for the direct allocation path. This requires hugepages to be reserved on the host first.
   - `MC_STORE_HUGEPAGE_SIZE` (default `2MB`): Hugepage size to request when hugepages are enabled. Supported values are `2MB` and `1GB`.
   - `MC_MMAP_ARENA_POOL_SIZE` (default unset): Size of the pre-allocated arena pool for mmap buffer allocations. Accepts human-readable sizes (e.g., `8gb`, `20gb`). Setting this variable explicitly enables the arena; if the arena is enabled via gflag instead, the default pool size is `8gb`. The arena is allocated once at first use and serves subsequent allocations via lock-free atomic bump pointer. Set this to match available hugepage capacity.
-  - `MC_DISABLE_MMAP_ARENA` (default unset): Set to `1` to disable the arena and fall back to per-call `mmap()`, even if the arena was explicitly requested. Useful for debugging or when hugepage capacity is limited.
+  - `MC_DISABLE_MMAP_ARENA` (default unset): Set to `1` to disable the arena and fall back to per-call `mmap()`, even if the arena was explicitly requested. Also accepts `true`, `yes`, or `on`. This must be set before the first Mooncake mmap-buffer allocation in the process. Useful for debugging or when hugepage capacity is limited.
 
 For HiCache-style deployments or other large buffer allocations, pre-flight the host with the sizing helper before reserving hugepages:
 
