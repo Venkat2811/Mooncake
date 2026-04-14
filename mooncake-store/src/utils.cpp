@@ -182,6 +182,9 @@ static void initializeGlobalArena() {
     } else {
         LOG(ERROR) << "=== ARENA INITIALIZATION FAILED ===";
         LOG(ERROR) << "Falling back to traditional mmap()";
+        LOG(ERROR) << "Arena initialization is only attempted once per "
+                      "process; restart after fixing the environment if you "
+                      "want to retry arena bring-up";
         g_mmap_arena.reset();
     }
 }

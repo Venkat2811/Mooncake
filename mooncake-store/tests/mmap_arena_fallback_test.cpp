@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
+#include <string>
 
 #include "utils.h"
 
@@ -20,8 +21,43 @@ class MmapArenaFallbackTest : public ::testing::Test {
         setenv("MC_DISABLE_MMAP_ARENA", "1", 1);
     }
 
-    void TearDown() override { unsetenv("MC_DISABLE_MMAP_ARENA"); }
+    void TearDown() override {
+        unsetenv("MC_DISABLE_MMAP_ARENA");
+        unsetenv("MC_MMAP_ARENA_POOL_SIZE");
+        unsetenv("MC_STORE_USE_HUGEPAGE");
+    }
 };
+
+TEST_F(MmapArenaFallbackTest, ArenaInitFailureIsStickyForProcessLifetime) {
+    unsetenv("MC_DISABLE_MMAP_ARENA");
+    unsetenv("MC_STORE_USE_HUGEPAGE");
+
+    // "infinite" parses to UINT64_MAX and deterministically trips the arena's
+    // overflow guard before any mmap attempt.
+    setenv("MC_MMAP_ARENA_POOL_SIZE", "infinite", 1);
+    FLAGS_minloglevel = google::INFO;
+    testing::internal::CaptureStderr();
+    void* first_ptr = allocate_buffer_mmap_memory(64 * 1024, 64);
+    ASSERT_NE(first_ptr, nullptr);
+    free_buffer_mmap_memory(first_ptr, 64 * 1024);
+    const std::string first_logs = testing::internal::GetCapturedStderr();
+    EXPECT_NE(first_logs.find("ARENA INITIALIZATION FAILED"),
+              std::string::npos);
+    EXPECT_NE(first_logs.find("only attempted once per process"),
+              std::string::npos);
+
+    // Fix the env and try again in the same process. std::call_once should
+    // keep us on the fallback path without re-running initialization.
+    setenv("MC_MMAP_ARENA_POOL_SIZE", "2gb", 1);
+    testing::internal::CaptureStderr();
+    void* second_ptr = allocate_buffer_mmap_memory(64 * 1024, 64);
+    ASSERT_NE(second_ptr, nullptr);
+    free_buffer_mmap_memory(second_ptr, 64 * 1024);
+    const std::string second_logs = testing::internal::GetCapturedStderr();
+    EXPECT_EQ(second_logs.find("ARENA INITIALIZATION FAILED"),
+              std::string::npos);
+    EXPECT_EQ(second_logs.find("ARENA ALLOCATOR ENABLED"), std::string::npos);
+}
 
 TEST_F(MmapArenaFallbackTest, HonorsPageAlignment) {
     const size_t alloc_size = 64 * 1024;
