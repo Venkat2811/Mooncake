@@ -164,6 +164,8 @@ sudo sysctl -w vm.nr_hugepages=262144
 grep -E 'HugePages_Total|HugePages_Free|Hugepagesize' /proc/meminfo
 ```
 
+The `64gb` / `56gb` inputs above are tuned examples for large HiCache deployments, not defaults. The arena remains disabled unless you explicitly enable it. If you enable it via gflag without an env override, the default pool size is `8gb`. On smaller hosts, start with `8gb` or `16gb` and size upward with the helper.
+
 ## Set the Log Level for yalantinglibs coro_rpc and coro_http
 By default, the log level is set to warning. You can customize it using the following environment variable:
 
