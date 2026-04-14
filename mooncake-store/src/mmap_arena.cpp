@@ -132,7 +132,7 @@ bool MmapArena::initialize(size_t pool_size, size_t alignment) {
 
     LOG(INFO) << "Arena initialized: "
               << (aligned_pool_size / (1024.0 * 1024.0 * 1024.0))
-              << " GB, alignment=" << actual_alignment << " bytes";
+              << " GiB, alignment=" << actual_alignment << " bytes";
 
     return true;
 }

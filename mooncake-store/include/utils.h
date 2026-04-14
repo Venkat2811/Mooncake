@@ -333,8 +333,33 @@ inline size_t align_up(size_t size, size_t alignment) {
     return size;
 }
 
-// Hugepage-backed allocation helpers (MAP_HUGETLB + MADV_HUGEPAGE)
+/**
+ * Allocate mmap-backed buffer memory for host KV / transfer buffers.
+ *
+ * When the global mmap arena is enabled, this function serves allocations
+ * from the arena and still honors the caller's requested alignment.
+ * Arena-owned allocations remain owned by the arena until process shutdown.
+ *
+ * When the arena is disabled or unavailable, this falls back to a direct
+ * mmap() allocation and returns a pointer aligned to at least the system page
+ * size (or the configured hugepage size when available).
+ *
+ * @param total_size Total buffer size in bytes.
+ * @param alignment Minimum alignment requested by the caller.
+ * @return Pointer to the allocation, or nullptr on failure.
+ */
 void* allocate_buffer_mmap_memory(size_t total_size, size_t alignment);
+
+/**
+ * Release memory previously returned by allocate_buffer_mmap_memory().
+ *
+ * Direct-mmap allocations are unmapped immediately. Arena-owned pointers are
+ * intentionally not unmapped individually; in that case this function is a
+ * no-op and the arena releases the backing pool during process teardown.
+ *
+ * @param ptr Pointer previously returned by allocate_buffer_mmap_memory().
+ * @param total_size Original allocation size in bytes.
+ */
 void free_buffer_mmap_memory(void* ptr, size_t total_size);
 
 /**
