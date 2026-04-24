@@ -491,7 +491,7 @@ To disable the arena and fall back to direct `mmap()` while keeping the hugepage
 export MC_DISABLE_MMAP_ARENA=1
 ```
 
-If `MC_STORE_USE_HUGEPAGE=1` is set, Mooncake treats hugepages as a hard requirement for both the arena path and the direct-`mmap()` baseline path. It will not silently retry those host-buffer allocations on regular pages.
+Without `MC_STORE_USE_HUGEPAGE=1`, the arena may opportunistically try hugepages and then retry on regular pages if HugeTLB is unavailable. If `MC_STORE_USE_HUGEPAGE=1` is set, Mooncake treats hugepages as a hard requirement for both the arena path and the direct-`mmap()` baseline path. It will not silently retry those host-buffer allocations on regular pages.
 
 If the helper reports `baseline_fits_arena_may_fallback`, either increase `vm.nr_hugepages` or reduce `MC_MMAP_ARENA_POOL_SIZE`. For containerized launches, pass the same environment variables through `docker run -e ...` and use `--ipc=host --ulimit memlock=-1 --shm-size=128g`.
 

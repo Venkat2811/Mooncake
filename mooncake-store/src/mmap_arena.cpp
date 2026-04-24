@@ -52,9 +52,6 @@ MmapArena::~MmapArena() {
 
 bool MmapArena::initialize(size_t pool_size, size_t alignment,
                            bool allow_regular_page_fallback) {
-    constexpr size_t kHugePageSize = 2 * 1024 * 1024;
-    constexpr double kBytesPerGiB = 1024.0 * 1024.0 * 1024.0;
-
     // Mutex serializes concurrent initialize() calls so that exactly one
     // thread performs the mmap and publishes the pool.  This avoids the
     // metadata-overwrite race that existed with the old CAS approach
@@ -80,7 +77,7 @@ bool MmapArena::initialize(size_t pool_size, size_t alignment,
 
     // Align pool size to 2MB for huge pages with overflow protection
     size_t aligned_pool_size;
-    if (!safe_align_up(pool_size, kHugePageSize, &aligned_pool_size)) {
+    if (!safe_align_up(pool_size, SZ_2MB, &aligned_pool_size)) {
         LOG(ERROR) << "Arena pool size overflow: requested=" << pool_size;
         return false;
     }
@@ -152,7 +149,7 @@ bool MmapArena::initialize(size_t pool_size, size_t alignment,
     pool_size_.store(aligned_pool_size, std::memory_order_relaxed);
     pool_base_.store(pool_base, std::memory_order_release);
 
-    LOG(INFO) << "Arena initialized: " << (aligned_pool_size / kBytesPerGiB)
+    LOG(INFO) << "Arena initialized: " << (aligned_pool_size / BYTES_PER_GIB)
               << " GiB, alignment=" << actual_alignment << " bytes";
 
     return true;

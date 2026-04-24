@@ -125,7 +125,6 @@ static std::atomic<uint64_t> g_arena_oom_fallback_count{0};
 static std::atomic<uint64_t> g_arena_noop_free_count{0};
 
 static void initializeGlobalArena() {
-    constexpr double kBytesPerGiB = 1024.0 * 1024.0 * 1024.0;
     const std::string env_pool_size =
         GetEnvStringOr("MC_MMAP_ARENA_POOL_SIZE", "");
     // Allow env var to override the gflag (useful when loaded as .so from
@@ -154,6 +153,10 @@ static void initializeGlobalArena() {
     }
 
     g_mmap_arena = std::make_unique<MmapArena>();
+    // Preserve Mooncake's existing strict hugepage contract only when the
+    // operator explicitly requested hugepages. Otherwise the arena still tries
+    // hugepages opportunistically and may retry on regular pages so explicit
+    // arena opt-in does not also require HugeTLB provisioning.
     const bool hugepages_explicitly_requested =
         get_hugepage_size_from_env() > 0;
 
@@ -181,7 +184,7 @@ static void initializeGlobalArena() {
     if (success) {
         auto stats = g_mmap_arena->getStats();
         LOG(INFO) << "=== ARENA ALLOCATOR ENABLED ===";
-        LOG(INFO) << "Arena pool size: " << (stats.pool_size / kBytesPerGiB)
+        LOG(INFO) << "Arena pool size: " << (stats.pool_size / BYTES_PER_GIB)
                   << " GiB";
         LOG(INFO) << "Using lock-free atomic bump allocation";
     } else {
