@@ -2,6 +2,7 @@
 // Simple arena allocator implementation
 
 #include "mmap_arena.h"
+#include "utils.h"
 #include <sys/mman.h>
 #include <glog/logging.h>
 #include <cerrno>
