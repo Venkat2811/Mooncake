@@ -174,9 +174,9 @@ static void initializeGlobalArena() {
         }
     }
 
-    bool success = g_mmap_arena->initialize(
-        arena_pool_size, MmapArena::kMinAlignment,
-        !hugepages_explicitly_requested);
+    bool success =
+        g_mmap_arena->initialize(arena_pool_size, MmapArena::kMinAlignment,
+                                 !hugepages_explicitly_requested);
 
     if (success) {
         auto stats = g_mmap_arena->getStats();

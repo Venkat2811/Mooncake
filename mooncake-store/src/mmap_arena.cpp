@@ -116,8 +116,7 @@ bool MmapArena::initialize(size_t pool_size, size_t alignment,
         flags &= ~MAP_HUGETLB;
         LOG(WARNING) << "Arena hugepage mmap failed for pool_size="
                      << aligned_pool_size << " bytes"
-                     << ", errno=" << mmap_errno << " ("
-                     << strerror(mmap_errno)
+                     << ", errno=" << mmap_errno << " (" << strerror(mmap_errno)
                      << "); retrying without huge pages";
         pool_base = mmap(nullptr, aligned_pool_size, PROT_READ | PROT_WRITE,
                          flags, -1, 0);
@@ -153,8 +152,7 @@ bool MmapArena::initialize(size_t pool_size, size_t alignment,
     pool_size_.store(aligned_pool_size, std::memory_order_relaxed);
     pool_base_.store(pool_base, std::memory_order_release);
 
-    LOG(INFO) << "Arena initialized: "
-              << (aligned_pool_size / kBytesPerGiB)
+    LOG(INFO) << "Arena initialized: " << (aligned_pool_size / kBytesPerGiB)
               << " GiB, alignment=" << actual_alignment << " bytes";
 
     return true;
