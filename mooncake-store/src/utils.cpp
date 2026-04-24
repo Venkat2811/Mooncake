@@ -153,10 +153,12 @@ static void initializeGlobalArena() {
     }
 
     g_mmap_arena = std::make_unique<MmapArena>();
-    // Preserve Mooncake's existing strict hugepage contract only when the
-    // operator explicitly requested hugepages. Otherwise the arena still tries
-    // hugepages opportunistically and may retry on regular pages so explicit
-    // arena opt-in does not also require HugeTLB provisioning.
+    // Keep arena init consistent with the direct-mmap path:
+    //   MC_STORE_USE_HUGEPAGE=1  -> strict: hard fail if hugepage mmap fails
+    //   unset                    -> permissive: try hugepages, retry on
+    //                               regular pages if HugeTLB is unavailable
+    // This preserves both pre-existing contracts and avoids surprising
+    // operators with a silent hugepage downgrade.
     const bool hugepages_explicitly_requested =
         get_hugepage_size_from_env() > 0;
 
