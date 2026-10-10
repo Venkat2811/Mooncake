@@ -237,10 +237,74 @@ class IbgdaDeviceTransportImpl : public RdmaTransport {
     }
 
     int registerMemory(void* ptr, size_t bytes) override {
-        mr_ =
-            ibv_reg_mr(pd_, ptr, bytes,
-                       IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ |
-                           IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC);
+        const int access = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ |
+                           IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
+        mr_ = nullptr;
+#if defined(USE_CUDA)
+        // Without nvidia-peermem (WITH_NVIDIA_PEERMEM=0, the switch the RDMA
+        // transport already honours) a GPU buffer cannot be registered with
+        // ibv_reg_mr: export the allocation as a dma-buf and register that,
+        // the pattern of rdma_context.cpp.
+        const char* pm_env = std::getenv("WITH_NVIDIA_PEERMEM");
+        const bool with_peermem =
+            !pm_env || !(pm_env[0] == '0' || pm_env[0] == 'f' ||
+                         pm_env[0] == 'F' || pm_env[0] == 'n' || pm_env[0] == 'N');
+        unsigned int mem_type = 0;
+        if (!with_peermem &&
+            cuPointerGetAttribute(&mem_type, CU_POINTER_ATTRIBUTE_MEMORY_TYPE,
+                                  reinterpret_cast<CUdeviceptr>(ptr)) ==
+                CUDA_SUCCESS &&
+            mem_type == CU_MEMORYTYPE_DEVICE) {
+            CUdeviceptr alloc_base = 0;
+            size_t alloc_size = 0;
+            if (cuMemGetAddressRange(&alloc_base, &alloc_size,
+                                     reinterpret_cast<CUdeviceptr>(ptr)) !=
+                CUDA_SUCCESS) {
+                LOG(ERROR) << "[EP IBGDA] cuMemGetAddressRange failed for the "
+                              "data buffer";
+                return -1;
+            }
+            int dmabuf_fd = -1;
+            CUresult res = cuMemGetHandleForAddressRange(
+                &dmabuf_fd, alloc_base, alloc_size,
+                CU_MEM_RANGE_HANDLE_TYPE_DMA_BUF_FD, 0);
+            if (res != CUDA_SUCCESS) {
+                const char* err = nullptr;
+                cuGetErrorString(res, &err);
+                LOG(ERROR) << "[EP IBGDA] cuMemGetHandleForAddressRange failed "
+                              "for the data buffer: "
+                           << (err ? err : "?");
+                return -1;
+            }
+            const uint64_t offset = reinterpret_cast<uintptr_t>(ptr) -
+                                    static_cast<uintptr_t>(alloc_base);
+            mr_ = ibv_reg_dmabuf_mr(pd_, offset, bytes,
+                                    reinterpret_cast<uintptr_t>(ptr), dmabuf_fd,
+                                    access);
+            if (!mr_) {
+                // Some NIC/driver pairs refuse remote atomics on a dma-buf MR.
+                mr_ = ibv_reg_dmabuf_mr(pd_, offset, bytes,
+                                        reinterpret_cast<uintptr_t>(ptr),
+                                        dmabuf_fd,
+                                        access & ~IBV_ACCESS_REMOTE_ATOMIC);
+                if (mr_)
+                    LOG(WARNING) << "[EP IBGDA] data buffer registered as "
+                                    "dma-buf without REMOTE_ATOMIC";
+            }
+            if (close(dmabuf_fd) != 0)
+                PLOG(WARNING) << "[EP IBGDA] close(dmabuf_fd) failed";
+            if (!mr_) {
+                PLOG(ERROR) << "[EP IBGDA] ibv_reg_dmabuf_mr failed for the "
+                               "data buffer";
+                return -1;
+            }
+            LOG(INFO) << "[EP IBGDA] data buffer registered as dma-buf ("
+                      << bytes << " bytes, offset " << offset << ")";
+            mr_ptr_ = ptr;
+            return 0;
+        }
+#endif
+        mr_ = ibv_reg_mr(pd_, ptr, bytes, access);
         if (!mr_) {
             LOG(ERROR) << "[EP IBGDA] ibv_reg_mr failed";
             return -1;
