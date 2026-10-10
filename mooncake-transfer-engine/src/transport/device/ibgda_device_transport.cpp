@@ -255,29 +255,37 @@ class IbgdaDeviceTransportImpl : public RdmaTransport {
                                   reinterpret_cast<CUdeviceptr>(ptr)) ==
                 CUDA_SUCCESS &&
             mem_type == CU_MEMORYTYPE_DEVICE) {
-            CUdeviceptr alloc_base = 0;
-            size_t alloc_size = 0;
-            if (cuMemGetAddressRange(&alloc_base, &alloc_size,
-                                     reinterpret_cast<CUdeviceptr>(ptr)) !=
-                CUDA_SUCCESS) {
-                LOG(ERROR) << "[EP IBGDA] cuMemGetAddressRange failed for the "
-                              "data buffer";
-                return -1;
-            }
+            // Export the page-aligned range being registered, not the whole
+            // reported allocation: for a PyTorch tensor (caching allocator,
+            // expandable segments) the allocation can be a VMM reservation that
+            // the driver refuses to export (invalid argument), as the RDMA
+            // transport found before (rdma_context.cpp).
+            unsigned int dev_ord = 0;
+            cuPointerGetAttribute(&dev_ord, CU_POINTER_ATTRIBUTE_DEVICE_ORDINAL,
+                                  reinterpret_cast<CUdeviceptr>(ptr));
+            CUdevice cu_dev = 0;
+            CUcontext cu_ctx = nullptr;
+            cuDeviceGet(&cu_dev, static_cast<int>(dev_ord));
+            cuDevicePrimaryCtxRetain(&cu_ctx, cu_dev);
+            cuCtxSetCurrent(cu_ctx);
+            const size_t page = static_cast<size_t>(sysconf(_SC_PAGESIZE));
+            const uintptr_t aligned =
+                reinterpret_cast<uintptr_t>(ptr) & ~static_cast<uintptr_t>(page - 1);
+            const uint64_t offset = reinterpret_cast<uintptr_t>(ptr) - aligned;
+            const size_t export_size = (offset + bytes + page - 1) & ~(page - 1);
             int dmabuf_fd = -1;
             CUresult res = cuMemGetHandleForAddressRange(
-                &dmabuf_fd, alloc_base, alloc_size,
+                &dmabuf_fd, static_cast<CUdeviceptr>(aligned), export_size,
                 CU_MEM_RANGE_HANDLE_TYPE_DMA_BUF_FD, 0);
+            cuDevicePrimaryCtxRelease(cu_dev);
             if (res != CUDA_SUCCESS) {
                 const char* err = nullptr;
                 cuGetErrorString(res, &err);
                 LOG(ERROR) << "[EP IBGDA] cuMemGetHandleForAddressRange failed "
-                              "for the data buffer: "
-                           << (err ? err : "?");
+                              "for the data buffer (base " << aligned << ", "
+                           << export_size << " bytes): " << (err ? err : "?");
                 return -1;
             }
-            const uint64_t offset = reinterpret_cast<uintptr_t>(ptr) -
-                                    static_cast<uintptr_t>(alloc_base);
             mr_ = ibv_reg_dmabuf_mr(pd_, offset, bytes,
                                     reinterpret_cast<uintptr_t>(ptr), dmabuf_fd,
                                     access);
