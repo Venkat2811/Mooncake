@@ -981,6 +981,14 @@ ErrorCode Client::InitTransferEngine(
                               "devices";
                 return ErrorCode::INTERNAL_ERROR;
             }
+        } else if (protocol == "nvlink") {
+            // Store segments in fabric GPU memory (USE_VRAM_SEGMENT + USE_MNNVL)
+            // served over the multi-node NVLink transport.
+            transport = transfer_engine_->installTransport("nvlink", nullptr);
+            if (!transport) {
+                LOG(ERROR) << "Failed to install NVLink transport";
+                return ErrorCode::INTERNAL_ERROR;
+            }
         } else if (protocol == "nvlink_intra") {
 #ifdef USE_INTRA_NVLINK
             LOG(INFO) << "Using intra-NVLink protocol.";
